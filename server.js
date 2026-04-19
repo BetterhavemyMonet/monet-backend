@@ -1,4 +1,3 @@
-const { sendAndConfirmTransaction } = require("@solana/web3.js");
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -8,7 +7,8 @@ const {
   Connection,
   Keypair,
   PublicKey,
-  Transaction
+  Transaction,
+  sendAndConfirmTransaction
 } = require("@solana/web3.js");
 
 const {
@@ -23,25 +23,39 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-const connection = new Connection("https://api.mainnet-beta.solana.com");
+const connection = new Connection("https://api.mainnet-beta.solana.com", "confirmed");
 
-// 🔐 Treasury wallet from Render ENV
 const treasury = Keypair.fromSecretKey(
   b.decode(process.env.PRIVATE_KEY)
 );
 
+const ADMIN_KEY = process.env.ADMIN_KEY || "secret123";
+
 const MINT = new PublicKey("6eACLGXCGdw9D5zb5eBKyFnFNTX9pTihDEpZQ7gYAX1b");
 
 let game = { pot: 0, players: [] };
+let roundActive = true;
+
+// ⏱ AUTO ROUND TIMER (60 sec)
+setInterval(async () => {
+  if (game.players.length > 0) {
+    console.log("⏱ Auto ending round...");
+    await runPayout();
+  }
+}, 60000);
 
 app.get("/", (req, res) => {
   res.send("🔥 Monet Backend LIVE 💰");
 });
 
-// 🎮 Enter game
+// 🎮 ENTER GAME (ANTI SPAM)
 app.get("/enter", (req, res) => {
   const { wallet, score } = req.query;
   if (!wallet) return res.json({ error: "No wallet" });
+
+  if (game.players.find(p => p.wallet === wallet)) {
+    return res.json({ error: "Already entered" });
+  }
 
   game.players.push({ wallet, score: Number(score || 0) });
   game.pot += 1;
@@ -49,16 +63,27 @@ app.get("/enter", (req, res) => {
   res.json({ success: true, game });
 });
 
-// 🏆 Leaderboard
+// 🏆 LEADERBOARD
 app.get("/leaderboard", (req, res) => {
   const sorted = game.players.sort((a,b)=>b.score-a.score);
   res.json({ pot: game.pot, players: sorted });
 });
 
-// 💰 END GAME + PAYOUT
+// 🔐 ADMIN PAYOUT ONLY
 app.get("/end", async (req, res) => {
+  const { key } = req.query;
+  if (key !== ADMIN_KEY) {
+    return res.json({ error: "Unauthorized" });
+  }
+
+  const result = await runPayout();
+  res.json(result);
+});
+
+// 💰 CORE PAYOUT LOGIC
+async function runPayout() {
   if (game.players.length === 0) {
-    return res.json({ error: "No players" });
+    return { error: "No players" };
   }
 
   const winner = game.players.reduce((a,b)=>a.score>b.score?a:b);
@@ -66,7 +91,6 @@ app.get("/end", async (req, res) => {
   try {
     const winnerPub = new PublicKey(winner.wallet);
 
-    // Ensure token accounts exist
     const fromATA = await getOrCreateAssociatedTokenAccount(
       connection,
       treasury,
@@ -93,8 +117,6 @@ app.get("/end", async (req, res) => {
     tx.feePayer = treasury.publicKey;
     tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
 
-    tx.sign(treasury);
-
     const sig = await sendAndConfirmTransaction(connection, tx, [treasury]);
 
     const payout = {
@@ -103,15 +125,14 @@ app.get("/end", async (req, res) => {
       tx: sig
     };
 
-    // reset game
     game = { pot: 0, players: [] };
 
-    res.json({ payout });
+    return { payout };
 
   } catch (e) {
     console.error(e);
-    res.json({ error: "Payout failed", details: e.message });
+    return { error: "Payout failed", details: e.message };
   }
-});
+}
 
-app.listen(3000, () => console.log("🔥 Monet Backend with payouts LIVE"));
+app.listen(3000, () => console.log("🔥 Monet Backend SECURED 💰"));
