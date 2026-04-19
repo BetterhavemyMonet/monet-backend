@@ -1,3 +1,4 @@
+const { sendAndConfirmTransaction } = require("@solana/web3.js");
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -94,7 +95,7 @@ app.get("/end", async (req, res) => {
 
     tx.sign(treasury);
 
-    const sig = await connection.sendRawTransaction(tx.serialize());
+    const sig = await connection.sendAndConfirmTransaction(connection, tx, [treasury]);
 
     const payout = {
       winner: winner.wallet,
