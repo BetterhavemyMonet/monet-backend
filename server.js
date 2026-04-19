@@ -76,7 +76,7 @@ app.get("/end", async (req, res) => {
         fromToken.address,
         toToken.address,
         TREASURY.publicKey,
-        game.pot * 1000000000
+        Math.floor(game.pot * 1000000)
       )
     );
 
