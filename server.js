@@ -23,7 +23,7 @@ app.use(cors());
 const connection = new Connection("https://api.mainnet-beta.solana.com");
 
 const TREASURY = Keypair.fromSecretKey(
-  bs58.decode(process.env.PRIVATE_KEY)
+  require("./keyfix")()
 );
 
 const MINT = new PublicKey("6eACLGXCGdw9D5zb5eBKyFnFNTX9pTihDEpZQ7gYAX1b");
