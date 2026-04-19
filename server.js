@@ -2,7 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
-const bs58 = require("bs58");
+const bodyParser = require("body-parser");
 
 const {
   Connection,
@@ -14,91 +14,122 @@ const {
 
 const {
   getOrCreateAssociatedTokenAccount,
-  createTransferInstruction
+  createTransferInstruction,
+  getMint
 } = require("@solana/spl-token");
+
+const bs58mod = require("bs58");
+const bs58 = bs58mod.decode ? bs58mod : bs58mod.default;
 
 const app = express();
 app.use(cors());
+app.use(bodyParser.json());
 
 const connection = new Connection("https://api.mainnet-beta.solana.com");
 
-const TREASURY = Keypair.fromSecretKey(
-  require("./keyfix")()
-);
+// 🔐 TREASURY
+const treasury = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY));
 
-const MINT = new PublicKey("6eACLGXCGdw9D5zb5eBKyFnFNTX9pTihDEpZQ7gYAX1b");
+// 🪙 MONET TOKEN
+const mint = new PublicKey("6eACLGXCGdw9D5zb5eBKyFnFNTX9pTihDEpZQ7gYAX1b");
 
+// 🎮 GAME STATE
 let game = { pot: 0, players: [] };
+const ENTRY_FEE = 1;
 
 app.get("/", (req, res) => {
-  res.send("🔥 Monet Vault Backend LIVE");
+  res.send("🔥 Monet Backend LIVE 🚀");
 });
 
+// 🎮 ENTER GAME
 app.get("/enter", (req, res) => {
   const { wallet, score } = req.query;
 
-  game.players.push({ wallet, score: Number(score) });
-  game.pot += 1;
+  try {
+    new PublicKey(wallet);
+  } catch {
+    return res.json({ error: "Invalid wallet" });
+  }
 
-  res.json({ success: true, game });
+  if (!game.players.find(p => p.wallet === wallet)) {
+    game.players.push({ wallet, score: Number(score) });
+    game.pot += ENTRY_FEE;
+  }
+
+  return res.json({ success: true, game });
 });
 
-app.get("/leaderboard", (req, res) => {
-  const sorted = game.players.sort((a,b)=>b.score-a.score);
-  res.json({ pot: game.pot, players: sorted });
-});
-
+// 🏆 END GAME + PAYOUT
 app.get("/end", async (req, res) => {
   try {
-    if (game.players.length === 0)
+    if (game.players.length === 0) {
       return res.json({ error: "No players" });
+    }
 
-    const winner = game.players.reduce((a,b)=>a.score>b.score?a:b);
+    if (game.pot <= 0) {
+      return res.json({ error: "Empty pot" });
+    }
 
-    const winnerPubkey = new PublicKey(winner.wallet);
-
-    const fromToken = await getOrCreateAssociatedTokenAccount(
-      connection,
-      TREASURY,
-      MINT,
-      TREASURY.publicKey
+    const winner = game.players.reduce((a, b) =>
+      a.score > b.score ? a : b
     );
 
-    const toToken = await getOrCreateAssociatedTokenAccount(
+    const payoutAmount = game.pot;
+
+    // 🔍 FETCH DECIMALS
+    const mintInfo = await getMint(connection, mint);
+    const DECIMALS = mintInfo.decimals;
+
+    // 🏦 FROM ATA
+    const fromATA = await getOrCreateAssociatedTokenAccount(
       connection,
-      TREASURY,
-      MINT,
-      winnerPubkey
+      treasury,
+      mint,
+      treasury.publicKey
     );
 
+    // 🎯 TO ATA
+    const toATA = await getOrCreateAssociatedTokenAccount(
+      connection,
+      treasury,
+      mint,
+      new PublicKey(winner.wallet)
+    );
+
+    // 💸 TRANSFER
     const tx = new Transaction().add(
       createTransferInstruction(
-        fromToken.address,
-        toToken.address,
-        TREASURY.publicKey,
-        Math.floor(game.pot * 1000000)
+        fromATA.address,
+        toATA.address,
+        treasury.publicKey,
+        payoutAmount * Math.pow(10, DECIMALS)
       )
     );
 
-    const sig = await sendAndConfirmTransaction(
-      connection,
-      tx,
-      [TREASURY]
-    );
+    const sig = await sendAndConfirmTransaction(connection, tx, [treasury]);
 
-    const result = {
-      winner: winner.wallet,
-      amount: game.pot,
-      tx: sig
-    };
+    console.log("🏆 WINNER:", winner.wallet);
+    console.log("💰 AMOUNT:", payoutAmount);
+    console.log("🔗 TX:", sig);
 
+    // RESET GAME AFTER PAYOUT
     game = { pot: 0, players: [] };
 
-    res.json({ payout: result });
+    return res.json({
+      payout: {
+        winner: winner.wallet,
+        amount: payoutAmount,
+        tx: sig
+      }
+    });
 
   } catch (e) {
-    res.json({ error: "Payout failed", details: e.message });
+    console.error("💥 ERROR:", e);
+    return res.json({
+      error: "Payout failed",
+      details: e.message
+    });
   }
 });
 
-app.listen(3000, () => console.log("🔥 Vault LIVE"));
+app.listen(3000, () => console.log("🔥 Backend LIVE"));
