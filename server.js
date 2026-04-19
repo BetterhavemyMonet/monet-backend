@@ -13,7 +13,7 @@ let game = {
 };
 
 // Add player
-app.post("/enter", (req, res) => {
+app.get("/enter", (req, res) => {
   const { wallet, score } = req.body;
 
   game.players.push({ wallet, score });
@@ -46,4 +46,5 @@ app.post("/end", (req, res) => {
 });
 
 app.get("/", (req, res) => res.send("🔥 Monet Backend is LIVE 🚀"));
+app.get("/", (req, res) => res.send("🔥 Monet Backend LIVE"));
 app.listen(3000, () => console.log("Server running on port 3000"));
