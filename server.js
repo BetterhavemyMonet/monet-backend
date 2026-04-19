@@ -45,4 +45,5 @@ app.post("/end", (req, res) => {
   res.json({ payout });
 });
 
+app.get("/", (req, res) => res.send("🔥 Monet Backend is LIVE 🚀"));
 app.listen(3000, () => console.log("Server running on port 3000"));
