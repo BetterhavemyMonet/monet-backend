@@ -95,7 +95,7 @@ app.get("/end", async (req, res) => {
 
     tx.sign(treasury);
 
-    const sig = await connection.sendAndConfirmTransaction(connection, tx, [treasury]);
+    const sig = await sendAndConfirmTransaction(connection, tx, [treasury]);
 
     const payout = {
       winner: winner.wallet,
